@@ -5,7 +5,7 @@ This implementation is based on the concepts, ideas and algorithm learned from '
 1. We used Google Colab as it will make the proceding smoother (less taxing on our system's underpowered hardware).
 2. Import the git repository as well as Kaggle's datasets by unzipping them in the current working directory.
 3. Kaggle's dataset can be imported in the working directory by using 'json' file obtained from our Kaggle account's profile. We can also upload the datasets normally by uploading the data ourselves.
-4. After this we have to run 'product2vec.py' file for generating product embeddings.
+4. After this we have to run 'product2vector.py' file for generating product embeddings.
 5. Lastly we have to run 'main.py' to compute everything and getting the desired prediction.
 
 # References
