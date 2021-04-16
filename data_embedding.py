@@ -71,7 +71,7 @@ class Data_Embedding(object):
 # Here we obtain Wasserstein Minimim Distance.
     return ot.emd2(dist_1, dist_2, dist_matrix)
 
-def rmv_prod_wo_emb(self, all_baskets):
+  def rmv_prod_wo_emb(self, all_baskets):
     final_filtered_baskets = []
     for p in all_baskets:
       p__cp = []
