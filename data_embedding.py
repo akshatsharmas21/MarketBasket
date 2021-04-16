@@ -1,120 +1,84 @@
-import os
-import pickle
-import pandas as pd
+import pandas as pnds
+import numpy as nmpy
+import ot
+from scipy.spatial.distance import euclidean, pdist, cdist, squareform
+from gensim.models import Word2Vec
 
 
-class BuildingConstructor(object):
-    '''
-        Grouping of products in their respective baskets in the form of listings
-    '''
-    def __init__(self, unch_dir, che_dir):
-        self.unch_dir = unch_dir
-        self.che_dir = che_dir
+class Data_Embedding(object):
+  def __init__(self, type):
+    if type == 'product':
+      self.model = Word2Vec.load("product2vector.model")
 
-    def obt_orders(self):
-        '''
-            getting only the relevant column names from the datasets which the algorithm will work on
-        '''
-        orders = pd.read_csv(self.unch_dir + 'orders.csv')
-        orders = orders.fillna(0.0)
-        orders['days'] = orders.groupby(['user_id'])['days_since_prior_order'].cumsum()
-        orders['days_last'] = orders.groupby(['user_id'])['days'].transform(max)
-        orders['days_up_to_last'] = orders['days_last'] - orders['days']
-        del orders['days_last']
-        del orders['days']
-        return orders
+    self.vocab_len = len(self.model.wv.vocab)
+    self.w2i = dict(zip([self.model.wv.index2word[i] for i in range(self.vocab_len)],
+            [i for i in range(self.vocab_len)]))
+    self.word_index_df = pnds.DataFrame(data=list(self.w2i.items()), columns=['product_id', 'emb_id'])
 
-    def obt_orders_items(self, prior_or_train):
-        '''
-            obtaining the complete data via prior or train orders
-        '''
-        orders_products = pd.read_csv(self.unch_dir + 'order_products__%s.csv'%prior_or_train)
-        return orders_products
 
-    def obt_users_orders(self, prior_or_train):
-        '''
-            obtaining the prior information of the users
-        '''
-        if os.path.exists(self.che_dir + 'users_orders.pkl'):
-            with open(self.che_dir + 'users_orders.pkl', 'rb') as f:
-                usr_ordr = pickle.load(f)
-        else:
-            orders = self.obt_orders()
-            order_products_prior = self.obt_orders_items(prior_or_train)
-            usr_ordr = pd.merge(order_products_prior, orders[['user_id', 'order_id', 'order_number', 'days_up_to_last']],
-                        on = ['order_id'], how = 'left')
-            with open(self.che_dir + 'users_orders.pkl', 'wb') as f:
-                pickle.dump(usr_ordr, f, pickle.HIGHEST_PROTOCOL)
-        return usr_ordr
+  def lkup(self, i):
+    return self.w2i[i]
 
-    def obt_users_products(self, prior_or_train):
-        '''
-            obtain the overall data for the users brought products
-        '''
-        if os.path.exists(self.che_dir + 'users_products.pkl'):
-            with open(self.che_dir + 'users_products.pkl', 'rb') as f:
-                usr_prod = pickle.load(f)
-        else:
-            usr_prod = self.obt_users_orders(prior_or_train)[['user_id', 'product_id']].drop_duplicates()
-            usr_prod['product_id'] = usr_prod.product_id.astype(int)
-            usr_prod['user_id'] = usr_prod.user_id.astype(int)
-            usr_prod = usr_prod.groupby(['user_id'])['product_id'].apply(list).reset_index()
-            with open(self.che_dir + 'users_products.pkl', 'wb') as f:
-                pickle.dump(usr_prod, f, pickle.HIGHEST_PROTOCOL)
-        return usr_prod
+#Here we obtain the closest itemsets distance of cross vector network
 
-    def obt_items(self, gran):
-        '''
-            obtain the necessary items' details
-        '''
-        items = pd.read_csv(self.unch_dir + '%s.csv'%gran)
-        return items
+  def obt_closest_of_set(self, itm_id, st_cand):
+    vector_intrst = self.model.wv.vectors[itm_id]
+    clst = nmpy.argmin([euclidean(vector_intrst, self.model.wv.vectors[x]) for x in st_cand])
+    return st_cand[clst]
 
-    def get_baskets(self, prior_or_train, reconstruct = False, none_idx = 49689):
-        '''
-            obtain the overall basket of the users
-        '''
-        f_p = self.che_dir + './basket_' + prior_or_train + '.pkl'
+  def obt_closest_from_preds(self, pred, cand_l_of_l):
+    cls_hist = []
+    for p in pred:
+      cls_hist.append(self.obt_closest_of_set(p, [x for seq in cand_l_of_l for x in seq]))
+    return cls_hist
 
-        if os.path.exists(f_p):
-            with open(f_p, 'rb') as f:
-                ubskt = pickle.load(f)
-        else:
-            up = self.obt_users_orders(prior_or_train).sort_values(['user_id', 'order_number', 'product_id'], ascending = True)
-            uid_oid = up[['user_id', 'order_number']].drop_duplicates()
-            up = up[['user_id', 'order_number', 'product_id']]
-            ubskt = up.groupby(['user_id', 'order_number'])['product_id'].apply(list).reset_index()
-            ubskt = pd.merge(uid_oid, ubskt, on = ['user_id', 'order_number'], how = 'left')
-            for row in ubskt.loc[ubskt.product_id.isnull(), 'product_id'].index:
-                ubskt.at[row, 'product_id'] = [none_idx]
-            ubskt = ubskt.sort_values(['user_id', 'order_number'], ascending = True).groupby(['user_id'])['product_id'].apply(list).reset_index()
-            ubskt.columns = ['user_id', 'basket']
-            with open(f_p, 'wb') as f:
-                pickle.dump(ubskt, f, pickle.HIGHEST_PROTOCOL)
-        return ubskt
+  def basket_dist_LB(self, bskts):
+#Here we calculate the Lower Bound, which is actually a NN search.
+#We also find the similar dataset from basket 1 and basket 2 and following that will add all the distances which it finds minimum.
+    bsk1_vectrs = self.model.wv.vectors[[x for x in bskts[0]]]
+    bsk2_vectrs = self.model.wv.vectors[[x for x in bskts[1]]]
 
-    def get_item_history(self, prior_or_train, reconstruct = False, none_idx = 49689):
-        f_p = self.che_dir + './item_history_' + prior_or_train + '.pkl'
-        if (not reconstruct) and os.path.exists(f_p):
-            with open(f_p, 'rb') as f:
-                itm_hist = pickle.load(f)
-        else:
-            up = self.obt_users_orders(prior_or_train).sort_values(['user_id', 'order_number', 'product_id'], ascending = True)
-            itm_hist = up.groupby(['user_id', 'order_number'])['product_id'].apply(list).reset_index()
-            itm_hist.loc[itm_hist.order_number == 1, 'product_id'] = itm_hist.loc[itm_hist.order_number == 1, 'product_id'] + [none_idx]
-            itm_hist = itm_hist.sort_values(['user_id', 'order_number'], ascending = True)
-            # Gather datasets by taking user id and product id.
-            itm_hist['product_id'] = itm_hist.groupby(['user_id'])['product_id'].transform(pd.Series.cumsum)
-            # Obtaining distictive data set here.
-            itm_hist['product_id'] = itm_hist['product_id'].apply(set).apply(list)
-            itm_hist = itm_hist.sort_values(['user_id', 'order_number'], ascending = True)
-            # Moving individual category and putting them into history set.
-            itm_hist['product_id'] = itm_hist.groupby(['user_id'])['product_id'].shift(1)
-            for row in itm_hist.loc[itm_hist.product_id.isnull(), 'product_id'].index:
-                itm_hist.at[row, 'product_id'] = [none_idx]
-            itm_hist = itm_hist.sort_values(['user_id', 'order_number'], ascending = True).groupby(['user_id'])['product_id'].apply(list).reset_index()
-            itm_hist.columns = ['user_id', 'history_items']
+    dist_matrix = cdist(bsk1_vectrs, bsk2_vectrs)
 
-            with open(f_p, 'wb') as f:
-                pickle.dump(itm_hist, f, pickle.HIGHEST_PROTOCOL)
-        return itm_hist
+    return max(nmpy.mean(nmpy.min(dist_matrix, axis=0)),
+      nmpy.mean(nmpy.min(dist_matrix, axis=1)))
+
+  def basket_dist_Decomp(self, bskts):
+    bskt1 = bskts[0]
+    bskt2 = bskts[1]
+    dct = nmpy.unique(list(bskt1) + list(bskt2))
+    vocab_len_ = len(dct)
+    product2ind = dict(zip(dct, nmpy.arange(vocab_len_)))
+
+# Here distance matrix is calculated.
+    dict_vectors = self.model.wv.vectors[[x for x in dct]]
+    dist_matrix = squareform(pdist(dict_vectors))
+
+    if nmpy.sum(dist_matrix) == 0.0:
+# There will be issues if 'EMD' has 0s in it.
+      return float('inf')
+
+    def no_bow(doc):
+      bow = nmpy.zeros(vocab_len_, dtype=nmpy.float)
+      for e in doc:
+        bow[product2ind[e]] += 1.
+      return bow / len(doc)
+
+# 'no_bow' is calculated to represent data as documets.
+    dist_1 = no_bow(bskt1)
+    dist_2 = no_bow(bskt2)
+
+# Here we obtain Wasserstein Minimim Distance.
+    return ot.emd2(dist_1, dist_2, dist_matrix)
+
+def rmv_prod_wo_emb(self, all_baskets):
+    final_filtered_baskets = []
+    for p in all_baskets:
+      p__cp = []
+      for q in p:
+        q__cp = [x for x in q if x in self.model.wv.vocab]
+        if len(q__cp) > 0:
+          p__cp.append(q__cp)
+      if len(p__cp) > 0:
+        final_filtered_baskets.append(p__cp)
+    return final_filtered_baskets
