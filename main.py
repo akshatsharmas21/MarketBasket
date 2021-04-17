@@ -6,7 +6,7 @@ from helper import nest_chng, rm_diff_products, rm_small_baskets, div_data
 
 def run():
     data_embedding = Data_Embedding('product')
-    bc = BuildingConstructor('/content/code/', '/content/code/')
+    bc = BuildingConstructor('/content/MarketBasket/code/', '/content/MarketBasket/code/')
     ub_basket = bc.get_baskets('prior', reconstruct=False)
 
     all_baskets = ub_basket.basket.values
