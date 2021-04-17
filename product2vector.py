@@ -1,9 +1,9 @@
 import pandas as pnds
 import gensim
 
-path_train = "/content/code/order_products__train.csv"
-path_prior = "/content/code/order_products__prior.csv"
-path_products = "/content/code/products.csv"
+path_train = "/content/MarketBasket/code/order_products__train.csv"
+path_prior = "/content/MarketBasket/code/order_products__prior.csv"
+path_products = "/content/MarketBasket/code/products.csv"
 
 train_orders = pnds.read_csv(path_train)
 prior_orders = pnds.read_csv(path_prior)
